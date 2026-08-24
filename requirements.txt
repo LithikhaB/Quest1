@@ -1,0 +1,6 @@
+openai-whisper
+google-genai
+rapidfuzz
+opencv-python
+pillow
+python-dotenv

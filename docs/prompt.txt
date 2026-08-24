@@ -1,0 +1,11 @@
+1. 
+We need to do a frame recognition system: 
+- input: Video URL, target dialogue
+- output: timestamp, frame number, frame snapshot.
+I have 2 approaches in my mind, evaluate both: 
+1st approach is: URL → Video → Frames(maybe sliding window) → detect most similar match → return 1st occurence. 
+    i understand this has a very heavy computation. 
+2nd approach is:  URL → Video → Audio → Transcripts → tentative frame → OCR for correct frame → take snapshot.
+    the dialogue is strictly from Audio, no visual elements. no video processing is required.
+
+2 things to note: Efficient Search, Accurate frame to return.
