@@ -91,7 +91,7 @@ def _build_ydl_options(output_dir: Path) -> dict[str, Any]:
         dict[str, Any]: Options dictionary for yt-dlp YoutubeDL instance.
     """
     output_template: str = str(output_dir / DEFAULT_VIDEO_OUT_TEMPLATE)
-    return {
+    options: dict[str, Any] = {
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": True,
@@ -102,6 +102,10 @@ def _build_ydl_options(output_dir: Path) -> dict[str, Any]:
         "socket_timeout": DEFAULT_SOCKET_TIMEOUT,
         "legacyserverconnect": True,
     }
+    if settings.ytdlp_proxy:
+        options["proxy"] = settings.ytdlp_proxy
+        logger.info("Routing yt-dlp traffic through configured proxy.")
+    return options
 
 
 def _collect_exception_chain(exception: Exception) -> list[Exception]:

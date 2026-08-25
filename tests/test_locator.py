@@ -8,11 +8,7 @@ from src.transcription.transcriber import Transcript, TranscriptSegment
 
 
 def _build_transcript() -> Transcript:
-    """Build a small synthetic transcript fixture for locator tests.
-
-    Returns:
-        Transcript: A three-segment transcript containing the target line.
-    """
+    """Build a small synthetic transcript fixture for locator tests."""
     segments = [
         TranscriptSegment(start_seconds=0.0, end_seconds=2.0, text="Good morning everyone"),
         TranscriptSegment(start_seconds=2.0, end_seconds=5.0, text="my mind rebels at stagnation"),
@@ -29,6 +25,8 @@ def test_locate_candidate_window_finds_matching_segment() -> None:
     assert result.confidence > 0.9
     assert result.start_seconds <= 2.0
     assert result.end_seconds >= 5.0
+    assert result.matched_segment_start_seconds == pytest.approx(2.0)
+    assert result.matched_segment_end_seconds == pytest.approx(5.0)
 
 
 def test_locate_candidate_window_handles_partial_noise() -> None:

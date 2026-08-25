@@ -4,54 +4,56 @@
 
 - Download video from URL using `yt-dlp`
   - Supports the given `ok.ru` URL
-  - Handle extractor/download failures with a clear error path
+  - Cache-first: skip all network access when the video already exists locally
+  - Handle extractor/download failures with a clean, classified error path
+  - Parallel fragment downloads for fast HLS acquisition
 
-- Extract audio and transcribe locally using **Whisper**: timestamp + transcript
+- Extract audio locally using `ffmpeg` (16 kHz mono WAV, cached)
 
-- Search transcript for the target dialogue
+- Transcribe locally using **Whisper** (`tiny` by default) with **word-level timestamps**
+  - Long segments chunked into <=2.5s spans so match windows stay frame-precise
+  - Transcript cached on disk keyed by audio hash + model
 
-- Sample frames within the candidate window
+- Search the transcript for the target dialogue using `rapidfuzz`
+  - Sliding-window fuzzy matching over transcript chunks
+  - Produce candidate window + match confidence + exact matched-segment bounds
 
-- Match OCR output against target dialogue: find first occurrence
+- Extract the single representative frame at the exact moment the dialogue is spoken
+  - OpenCV seek to the matched segment start
+  - Save the frame as a PNG image into `data/frames/`
 
 - Produce required output:
-  - Timestamp
+  - Timestamp (`HH:MM:SS.mmm`)
   - Frame number
-  - Extracted dialogue text
-  - Saved frame image
+  - Extracted dialogue text (the verified transcript segment)
+  - Saved frame image path
   - Confidence score
 
 - Handle uncertainty
-  - Define a confidence/similarity threshold
-  - Mark results as ambiguous when confidence is below the threshold
-
-- Fallback when audio search fails
-  - Perform a coarse OCR scan across the video
+  - Confidence threshold (default 0.8)
+  - Mark results as ambiguous when the audio match confidence is below the threshold
 
 
 ## Nice-to-Have — If Time Remains
 
-- Crop OCR to the likely caption/subtitle region
-  - Reduce Gemini calls
-  - Improve processing speed
+- Whisper model upgrade via config
+  - `WHISPER_MODEL_SIZE=base|small` in `.env` for noisy audio, ~2x runtime
 
-- Scene-cut detection
-  - Skip near-duplicate frames
-  - Reduce unnecessary OCR calls
+- CLI entry point (`python main.py --url <URL> --dialogue "<text>"`)
+  - Never hardcode the sample video/line
 
-- Binary-search refinement
-  - Once a `no-text → text` transition is found
-  - Narrow down the exact first frame with fewer Gemini calls
+- Dockerfile: containerize the application
 
-- Independent Gemini verification
-  - Use a second Gemini pass to verify the candidate frame
-  - Keep Gemini as a verifier rather than the sole decision-maker
+- Caption-aware mode for future videos
+  - If a video *does* have burned-in subtitles, optionally re-add visual verification
+    (design preserved in `approach_audio_only.md` / git history)
 
-- Dockerfile: Containerize the application
+- Batch mode: multiple dialogues per video in one run (transcript reused)
+
 
 ## Initial Architecture with tentative tech stack
 
-![Initial Architecture](architecture%20diagram/version1.svg)
+![Initial Architecture](architecture%20diagrams/version1.svg)
 
 ---
 
@@ -59,58 +61,56 @@
 
 - **M0 — Environment & Repository Skeleton**
   - Public GitHub repository: `Quest1`
-  - Set up folder structure
-  - Add `requirements.txt`
-  - Create `argparse` CLI skeleton
-  - Add initial `README.md`
-  - Start `prompts.txt`
+  - Folder structure, `requirements.txt`, `README.md`, `prompts.txt`
+  - Complete
 
 - **M1 — Acquisition**
-  - Download video using `yt-dlp`
-  - Add clean error handling
-  - Test against the actual `ok.ru` URL first
-  - Complete and validate this module before building further stages
-![M1](architecture%20diagram/M1.svg)
+  - Download video using `yt-dlp` (Python API)
+  - Cache-first with post-download verification
+  - Concurrent fragment downloads; ok.ru bad-IP deprioritization
+  - Classified errors: `NetworkError`, `VideoUnavailableError`, `UnsupportedURLError`
+  - Complete and validated against the actual `ok.ru` URL
+![M1](architecture%20diagrams/M1.svg)
 
-- **M2 — Audio Locate**
+- **M2 — Audio Locate (sole localization signal)**
   - Extract audio using `ffmpeg`
-  - Transcribe locally using `faster-whisper`
-  - Generate timestamped transcript segments
-  - Match target dialogue using `rapidfuzz`
-  - Produce candidate time window + confidence
-![M2](architecture%20diagram/M2.svg)
+  - Transcribe locally using OpenAI Whisper with word-level timestamps
+  - Chunk long segments to <=2.5s spans
+  - Match target dialogue using `rapidfuzz` sliding windows
+  - Produce `CandidateWindow` (padded bounds, confidence, matched text, matched-segment bounds)
+  - Complete
+![M2](architecture%20diagrams/M2.svg)
 
-- **M3 — Visual Verify**
-  - Sample frames within the candidate window
-  - Crop to the likely subtitle/caption region
-  - Send selected frames to Gemini for OCR
-  - Fuzzy-match OCR text against target dialogue
-  - Select the first frame crossing the confidence threshold
-  - Save the matched frame
-![M3](architecture%20diagram/M3.svg)
+- **M3 — Frame Extraction**
+  - Pull the single frame at the matched segment start (`sample_frames(video, t, t)`)
+  - Save it as a PNG into `data/frames/`
+  - Complete
 
-- **M4 — Fallback Path**
-  - Trigger when M2 produces low-confidence/no match
-  - Perform a coarse full-video OCR scan
-  - Reuse M3's OCR and matching logic
-  - Locate an approximate region for further verification
+- **M4 — Ambiguity Handling**
+  - `is_ambiguous(window)`: True when audio confidence < similarity threshold
+  - Complete
 
-- **M5 — Output & Ambiguity Handling**
-  - Format output according to the assignment specification
-  - Include timestamp, frame number, extracted text, confidence, and image
-  - Report ambiguous/low-confidence results
-  - Handle multiple close candidate matches
+- **M5 — Output Formatting**
+  - `DialogueResult` dataclass: timestamp, frame number, matched text, image path,
+    confidence, ambiguous flag
+  - Spec-format report printed and saved to `data/processed/result.txt`
+  - Complete
 
-- **M6 — Documentation**
-  - Finalize `APPROACH.md`
-  - Finalize `prompts.txt`
-  - Update `README.md`
-  - Document design decisions, assumptions, thresholds, and limitations
-  - Documentation is maintained in parallel with implementation, not only at the end
+- **M6 — Streamlit Frontend**
+  - URL + dialogue inputs, Run button
+  - Timestamp/frame/confidence metrics, ambiguity warning, matched text, inline frame image
+  - Complete
 
-- **M7 — Interview Preparation & Validation**
-  - Review the complete implementation
-  - Rehearse the four key areas of the solution
-  - Test with a second video/dialogue pair
-  - Verify that the pipeline is not hardcoded to the sample input
-  - Prepare to explain design decisions, trade-offs, and failure handling
+- **M7 — Documentation & Interview Preparation**
+  - `README.md` (how to run), `docs/approach_audio_only.md` (final design rationale),
+    `sample.md` (build log), `prompts.txt`
+  - Rehearse design decisions: why audio-only, word-level chunking, caching, ambiguity
+  - Validate with a second video/dialogue pair; nothing hardcoded to the sample input
+
+## Why audio-only (design pivot)
+
+The target video delivers the dialogue as **speech with no on-screen captions**. Visual OCR
+verification was built, run against the real video, and removed: it could only add failure
+modes (API rate limits, watermark false positives, quota exhaustion) without adding
+information. The full rationale and the preserved OCR design live in
+`approach_audio_only.md` and `sample.md`.

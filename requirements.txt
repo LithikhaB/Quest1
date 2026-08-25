@@ -1,7 +1,5 @@
-google-genai
 opencv-python
 openai-whisper
-pillow
 python-dotenv
 rapidfuzz
 streamlit

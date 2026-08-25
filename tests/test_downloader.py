@@ -1,11 +1,29 @@
 """Unit and integration tests for the video downloader module."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from src.acquisition.downloader import DownloadResult, download_video
+import src.acquisition.downloader as downloader_module
+from src.acquisition.downloader import DownloadResult, _build_ydl_options, download_video
 from src.acquisition.exceptions import DownloadError
+
+
+def test_build_ydl_options_includes_proxy_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The proxy setting must be forwarded to yt-dlp options when present."""
+    monkeypatch.setattr(
+        downloader_module, "settings", SimpleNamespace(ytdlp_proxy="socks5://127.0.0.1:1080")
+    )
+    options = _build_ydl_options(Path("data/raw"))
+    assert options["proxy"] == "socks5://127.0.0.1:1080"
+
+
+def test_build_ydl_options_omits_proxy_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No proxy key should be present when no proxy is configured."""
+    monkeypatch.setattr(downloader_module, "settings", SimpleNamespace(ytdlp_proxy=None))
+    options = _build_ydl_options(Path("data/raw"))
+    assert "proxy" not in options
 
 
 @pytest.mark.integration

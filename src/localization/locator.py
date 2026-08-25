@@ -82,4 +82,6 @@ def locate_candidate_window(
         end_seconds=best_end + padding_seconds,
         confidence=best_score / 100.0,
         matched_text=best_text,
+        matched_segment_start_seconds=best_start,
+        matched_segment_end_seconds=best_end,
     )
