@@ -13,3 +13,5 @@ data/audio/*
 !data/audio/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+.claude
+claude.md

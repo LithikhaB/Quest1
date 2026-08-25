@@ -1,6 +1,7 @@
 """Frame-by-frame OCR verification of dialogue against sampled video frames."""
 
 import logging
+from collections import Counter
 import numpy as np
 from rapidfuzz import fuzz
 
@@ -12,6 +13,9 @@ from src.ocr.gemini_client import extract_text_from_image
 from src.ocr.models import FrameMatch, VerificationResult
 
 logger = logging.getLogger(__name__)
+
+_WATERMARK_MIN_FRAMES: int = 3
+_WATERMARK_MAJORITY_FRACTION: float = 0.5
 
 
 def _crop_to_caption_band(image: np.ndarray, crop_ratio: float = DEFAULT_CAPTION_CROP_RATIO) -> np.ndarray:
@@ -42,6 +46,33 @@ def _normalize(text: str) -> str:
         str: Normalized text.
     """
     return text.strip().lower()
+
+
+def _detect_watermark_text(frame_texts: list[tuple[Frame, str]]) -> str | None:
+    """Identify persistent overlay text (e.g. channel watermarks) across frames.
+
+    Text that repeats identically across many frames is almost certainly a
+    watermark or logo, not the dialogue caption being searched for. Leaving it
+    in would pollute similarity scores (every frame gets the same weak score)
+    and falsely signal that captions exist.
+
+    Args:
+        frame_texts: (frame, OCR text) pairs collected from the sampled window.
+
+    Returns:
+        str | None: The watermark text if detected, otherwise None.
+    """
+    non_empty: list[str] = [
+        text.strip() for _, text in frame_texts
+        if len(text.strip()) >= DEFAULT_MIN_CAPTION_TEXT_LENGTH
+    ]
+    if not non_empty:
+        return None
+
+    top_text, top_count = Counter(non_empty).most_common(1)[0]
+    if top_count >= _WATERMARK_MIN_FRAMES and top_count >= _WATERMARK_MAJORITY_FRACTION * len(non_empty):
+        return top_text
+    return None
 
 
 def verify_frames(

@@ -81,12 +81,58 @@ def _file_sha256(file_path: Path) -> str:
     return digest.hexdigest()
 
 
+def _chunk_words_into_segments(
+    words: list[dict[str, Any]],
+    max_span_seconds: float = DEFAULT_MAX_TRANSCRIPT_CHUNK_SPAN_SECONDS,
+) -> list[TranscriptSegment]:
+    """Group word-level timestamps into short transcript segments.
+
+    Whisper sometimes merges many seconds of speech into one segment, which is
+    too coarse for frame-precise localization. Word-level timestamps are
+    regrouped so no segment spans more than `max_span_seconds`, keeping the
+    transcript fine-grained without changing its schema.
+
+    Args:
+        words: Word entries with "word", "start", and "end" keys.
+        max_span_seconds: Maximum time span allowed per chunk.
+
+    Returns:
+        list[TranscriptSegment]: Chunked segments in chronological order.
+    """
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+
+    for word in words:
+        word_start: float = float(word.get("start", 0.0))
+        word_end: float = float(word.get("end", word_start))
+        if current and word_end - float(current[0]["start"]) > max_span_seconds:
+            chunks.append(current)
+            current = []
+        current.append({"start": word_start, "end": word_end, "word": str(word.get("word", ""))})
+    if current:
+        chunks.append(current)
+
+    chunked: list[TranscriptSegment] = []
+    for chunk in chunks:
+        text: str = " ".join(str(w["word"]).strip() for w in chunk).strip()
+        if not text:
+            continue
+        chunked.append(
+            TranscriptSegment(
+                start_seconds=float(chunk[0]["start"]),
+                end_seconds=float(chunk[-1]["end"]),
+                text=text,
+            )
+        )
+    return chunked
+
+
 def _cache_path_for(audio_path: Path, model_size: str) -> Path:
     """Resolve the JSON cache file path for a given audio file and model.
 
     The cache filename is derived from the audio file's SHA-256 hash plus the
-    model size, so identical audio + model combinations always map to the same
-    cache file.
+    model size and a format marker, so identical audio + model combinations
+    always map to the same cache file and older cache formats are ignored.
 
     Args:
         audio_path: Path to the source audio file.
@@ -97,7 +143,7 @@ def _cache_path_for(audio_path: Path, model_size: str) -> Path:
     """
     audio_hash: str = _file_sha256(audio_path)
     cache_dir: Path = settings.transcript_cache_dir
-    return cache_dir / f"{audio_hash}_{model_size}.json"
+    return cache_dir / f"{audio_hash}_{model_size}_words.json"
 
 
 def _load_cached_transcript(cache_path: Path) -> Transcript | None:
@@ -206,18 +252,25 @@ def transcribe_audio(
 
     logger.info("Transcribing audio: %s", audio_path)
     try:
-        result: dict[str, Any] = model.transcribe(str(audio_path), verbose=False)
+        result: dict[str, Any] = model.transcribe(
+            str(audio_path), verbose=False, word_timestamps=True
+        )
     except Exception as err:
         raise TranscriptionFailedError(f"Whisper transcription failed for {audio_path}: {err}") from err
 
-    segments: list[TranscriptSegment] = [
-        TranscriptSegment(
-            start_seconds=float(segment["start"]),
-            end_seconds=float(segment["end"]),
-            text=str(segment["text"]).strip(),
-        )
-        for segment in result.get("segments", [])
-    ]
+    segments: list[TranscriptSegment] = []
+    for segment in result.get("segments", []):
+        words: list[dict[str, Any]] = list(segment.get("words") or [])
+        if words:
+            segments.extend(_chunk_words_into_segments(words))
+        else:
+            segments.append(
+                TranscriptSegment(
+                    start_seconds=float(segment["start"]),
+                    end_seconds=float(segment["end"]),
+                    text=str(segment["text"]).strip(),
+                )
+            )
 
     transcript = Transcript(
         segments=segments,
