@@ -34,22 +34,6 @@
   - Mark results as ambiguous when the audio match confidence is below the threshold
 
 
-## Nice-to-Have — If Time Remains
-
-- Whisper model upgrade via config
-  - `WHISPER_MODEL_SIZE=base|small` in `.env` for noisy audio, ~2x runtime
-
-- CLI entry point (`python main.py --url <URL> --dialogue "<text>"`)
-  - Never hardcode the sample video/line
-
-- Dockerfile: containerize the application
-
-- Caption-aware mode for future videos
-  - If a video *does* have burned-in subtitles, optionally re-add visual verification
-    (design preserved in `approach_audio_only.md` / git history)
-
-- Batch mode: multiple dialogues per video in one run (transcript reused)
-
 
 ## Initial Architecture with tentative tech stack
 
@@ -62,14 +46,15 @@
 - **M0 — Environment & Repository Skeleton**
   - Public GitHub repository: `Quest1`
   - Folder structure, `requirements.txt`, `README.md`, `prompts.txt`
-  - Complete
+   
 
 - **M1 — Acquisition**
   - Download video using `yt-dlp` (Python API)
   - Cache-first with post-download verification
   - Concurrent fragment downloads; ok.ru bad-IP deprioritization
   - Classified errors: `NetworkError`, `VideoUnavailableError`, `UnsupportedURLError`
-  - Complete and validated against the actual `ok.ru` URL
+    and validated against the actual `ok.ru` URL
+
 ![M1](architecture%20diagrams/M1.svg)
 
 - **M2 — Audio Locate (sole localization signal)**
@@ -78,39 +63,34 @@
   - Chunk long segments to <=2.5s spans
   - Match target dialogue using `rapidfuzz` sliding windows
   - Produce `CandidateWindow` (padded bounds, confidence, matched text, matched-segment bounds)
-  - Complete
+   
 ![M2](architecture%20diagrams/M2.svg)
 
 - **M3 — Frame Extraction**
   - Pull the single frame at the matched segment start (`sample_frames(video, t, t)`)
   - Save it as a PNG into `data/frames/`
-  - Complete
+   
+![M3](architecture%20diagrams/M3.svg)
 
 - **M4 — Ambiguity Handling**
   - `is_ambiguous(window)`: True when audio confidence < similarity threshold
-  - Complete
+   
+![M4](architecture%20diagrams/M4.svg)
 
 - **M5 — Output Formatting**
   - `DialogueResult` dataclass: timestamp, frame number, matched text, image path,
     confidence, ambiguous flag
   - Spec-format report printed and saved to `data/processed/result.txt`
-  - Complete
+   
+![M5](architecture%20diagrams/M5.svg)
 
 - **M6 — Streamlit Frontend**
   - URL + dialogue inputs, Run button
   - Timestamp/frame/confidence metrics, ambiguity warning, matched text, inline frame image
-  - Complete
+  
+![M6](architecture%20diagrams/M6.svg)
+   
 
 - **M7 — Documentation & Interview Preparation**
-  - `README.md` (how to run), `docs/approach_audio_only.md` (final design rationale),
-    `sample.md` (build log), `prompts.txt`
+  - `README.md` (how to run), `docs/approach.md`, `prompts.txt`
   - Rehearse design decisions: why audio-only, word-level chunking, caching, ambiguity
-  - Validate with a second video/dialogue pair; nothing hardcoded to the sample input
-
-## Why audio-only (design pivot)
-
-The target video delivers the dialogue as **speech with no on-screen captions**. Visual OCR
-verification was built, run against the real video, and removed: it could only add failure
-modes (API rate limits, watermark false positives, quota exhaustion) without adding
-information. The full rationale and the preserved OCR design live in
-`approach_audio_only.md` and `sample.md`.

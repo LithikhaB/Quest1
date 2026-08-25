@@ -81,15 +81,8 @@ def _apply_dns_patch() -> None:
     _dns_patch_applied = True
 
 
-def _build_ydl_options(output_dir: Path) -> dict[str, Any]:
-    """Construct configuration dictionary for YoutubeDL instances.
-
-    Args:
-        output_dir: Directory where downloaded video files will be saved.
-
-    Returns:
-        dict[str, Any]: Options dictionary for yt-dlp YoutubeDL instance.
-    """
+def _build_ydl_options(output_dir: Path, proxy: str | None = None) -> dict[str, Any]:
+    """Construct configuration dictionary for YoutubeDL instances."""
     output_template: str = str(output_dir / DEFAULT_VIDEO_OUT_TEMPLATE)
     options: dict[str, Any] = {
         "outtmpl": output_template,
@@ -102,9 +95,9 @@ def _build_ydl_options(output_dir: Path) -> dict[str, Any]:
         "socket_timeout": DEFAULT_SOCKET_TIMEOUT,
         "legacyserverconnect": True,
     }
-    if settings.ytdlp_proxy:
-        options["proxy"] = settings.ytdlp_proxy
-        logger.info("Routing yt-dlp traffic through configured proxy.")
+    if proxy:
+        options["proxy"] = proxy
+        logger.info("Routing yt-dlp traffic through proxy: %s", proxy)
     return options
 
 
@@ -299,44 +292,9 @@ def _resolve_target_path(ydl: yt_dlp.YoutubeDL, info: dict[str, Any], output_dir
     return target_path
 
 
-def download_video(url: str, output_dir: Path | None = None) -> DownloadResult:
-    """Acquire a video from a URL and save it to the specified output directory.
-
-    If the video file already exists on disk in the output directory, the
-    cached file is used with no network access at all — not even to re-fetch
-    metadata. Duration is read locally via ffprobe in that case, so a fully
-    cached run can succeed even if the source site is temporarily unreachable.
-
-    Args:
-        url: Direct web URL of the target video.
-        output_dir: Optional directory to store the downloaded video. Defaults to raw_video_dir.
-
-    Returns:
-        DownloadResult: Container holding the local file path, duration, and title.
-
-    Raises:
-        UnsupportedURLError: If the URL is unsupported or invalid.
-        VideoUnavailableError: If the video is private, removed, or geo-restricted.
-        NetworkError: If a connection or network failure occurred.
-        DownloadError: For all other acquisition failures.
-    """
-    _apply_dns_patch()
-
-    destination_dir: Path = output_dir if output_dir is not None else settings.raw_video_dir
-    destination_dir.mkdir(parents=True, exist_ok=True)
-
-    cached_path = _find_cached_file(destination_dir, url)
-    if cached_path is not None:
-        logger.info("Video already cached at %s; skipping network access entirely.", cached_path)
-        return DownloadResult(
-            file_path=cached_path,
-            duration_seconds=_probe_duration_seconds(cached_path),
-            title=cached_path.stem,
-        )
-
-    logger.info("Starting acquisition for video URL: %s", url)
-
-    ydl_options: dict[str, Any] = _build_ydl_options(destination_dir)
+def _acquire_via_ytdlp(url: str, destination_dir: Path, proxy: str | None) -> DownloadResult:
+    """Run metadata extraction and download through one specific network route."""
+    ydl_options: dict[str, Any] = _build_ydl_options(destination_dir, proxy)
 
     with yt_dlp.YoutubeDL(ydl_options) as ydl:
         info = _extract_metadata(ydl, url)
@@ -374,3 +332,50 @@ def download_video(url: str, output_dir: Path | None = None) -> DownloadResult:
             duration_seconds=duration,
             title=title,
         )
+
+
+def download_video(url: str, output_dir: Path | None = None) -> DownloadResult:
+    """Acquire a video, trying the configured proxy first and direct connection as fallback.
+
+    If the video file already exists on disk in the output directory, the
+    cached file is used with no network access at all. Otherwise acquisition
+    is attempted through each available network route (configured proxy, then
+    direct); only network failures trigger the next route — unavailability or
+    unsupported-URL errors fail immediately.
+
+    Raises:
+        UnsupportedURLError: If the URL is unsupported or invalid.
+        VideoUnavailableError: If the video is private, removed, or geo-restricted.
+        NetworkError: If every network route failed.
+        DownloadError: For all other acquisition failures.
+    """
+    _apply_dns_patch()
+
+    destination_dir: Path = output_dir if output_dir is not None else settings.raw_video_dir
+    destination_dir.mkdir(parents=True, exist_ok=True)
+
+    cached_path = _find_cached_file(destination_dir, url)
+    if cached_path is not None:
+        logger.info("Video already cached at %s; skipping network access entirely.", cached_path)
+        return DownloadResult(
+            file_path=cached_path,
+            duration_seconds=_probe_duration_seconds(cached_path),
+            title=cached_path.stem,
+        )
+
+    logger.info("Starting acquisition for video URL: %s", url)
+
+    routes: list[str | None] = (
+        [settings.ytdlp_proxy, None] if settings.ytdlp_proxy else [None]
+    )
+    last_error: NetworkError | None = None
+
+    for route in routes:
+        route_name: str = "proxy" if route else "direct connection"
+        try:
+            return _acquire_via_ytdlp(url, destination_dir, route)
+        except NetworkError as err:
+            last_error = err
+            logger.warning("Acquisition failed via %s; trying next route.", route_name)
+
+    raise last_error

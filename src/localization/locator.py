@@ -1,27 +1,39 @@
 """Fuzzy dialogue localization against a timestamped transcript."""
 
 import logging
+import re
 
 from rapidfuzz import fuzz
 
-from src.constants import DEFAULT_MAX_WINDOW_SEGMENTS, DEFAULT_WINDOW_PADDING_SECONDS
+from src.constants import (
+    DEFAULT_MAX_WINDOW_SEGMENTS,
+    DEFAULT_MIN_WINDOW_WORDS,
+    DEFAULT_MIN_WINDOW_WORD_RATIO,
+    DEFAULT_WINDOW_PADDING_SECONDS,
+)
 from src.localization.exceptions import EmptyTranscriptError
 from src.localization.models import CandidateWindow
 from src.transcription.transcriber import Transcript
 
 logger = logging.getLogger(__name__)
 
+_WORD_PATTERN: re.Pattern[str] = re.compile(r"[a-z0-9']+")
+
 
 def _normalize(text: str) -> str:
-    """Lowercase and strip text for consistent fuzzy comparison.
-
-    Args:
-        text: Raw input text.
-
-    Returns:
-        str: Normalized text.
-    """
+    """Lowercase and strip text for consistent fuzzy comparison."""
     return text.strip().lower()
+
+
+def _word_count(text: str) -> int:
+    """Count alphanumeric words in text, ignoring punctuation."""
+    return len(_WORD_PATTERN.findall(text.lower()))
+
+
+def _min_window_words(target_dialogue: str) -> int:
+    """Compute the minimum words a candidate window must contain to be taken seriously."""
+    target_words: int = _word_count(target_dialogue)
+    return max(DEFAULT_MIN_WINDOW_WORDS, int(target_words * DEFAULT_MIN_WINDOW_WORD_RATIO))
 
 
 def locate_candidate_window(
@@ -53,6 +65,7 @@ def locate_candidate_window(
         raise EmptyTranscriptError("Transcript contains no segments to search.")
 
     normalized_target: str = _normalize(target_dialogue)
+    min_words: int = _min_window_words(target_dialogue)
     segments = transcript.segments
 
     best_score: float = -1.0
@@ -64,6 +77,12 @@ def locate_candidate_window(
         for start_idx in range(len(segments) - window_size + 1):
             window = segments[start_idx : start_idx + window_size]
             window_text: str = " ".join(segment.text for segment in window)
+
+            # A window far shorter than the target can only match via substring
+            # flukes (e.g. "it" inside a long phrase) — reject it outright.
+            if _word_count(window_text) < min_words:
+                continue
+
             score: float = fuzz.partial_ratio(normalized_target, _normalize(window_text))
 
             if score > best_score:
@@ -71,6 +90,14 @@ def locate_candidate_window(
                 best_start = window[0].start_seconds
                 best_end = window[-1].end_seconds
                 best_text = window_text
+
+    if best_score < 0:
+        logger.warning(
+            "No transcript window met the minimum length (%d words) for target %r; "
+            "returning first segment with zero confidence.",
+            min_words, target_dialogue[:50],
+        )
+        best_score = 0.0
 
     logger.info(
         "Best dialogue match: score=%.1f window=[%.2f, %.2f]",

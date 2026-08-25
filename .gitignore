@@ -13,6 +13,6 @@ data/audio/*
 !data/audio/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
-.claude
-claude.md
+
 sample.md
+interview_prep.md

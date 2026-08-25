@@ -37,6 +37,23 @@ def test_locate_candidate_window_handles_partial_noise() -> None:
     assert result.confidence > 0.7
 
 
+def test_locate_candidate_window_rejects_substring_fluke_windows() -> None:
+    """A tiny segment contained in the target (e.g. 'it') must never win with score 100."""
+    segments = [
+        TranscriptSegment(start_seconds=0.0, end_seconds=2.0, text="it"),
+        TranscriptSegment(
+            start_seconds=10.0, end_seconds=14.0,
+            text="why should i attempt to conceal it",
+        ),
+    ]
+    transcript = Transcript(segments=segments, language="en")
+
+    result = locate_candidate_window(transcript, "why should i tempt to conceal it")
+
+    assert result.matched_segment_start_seconds == pytest.approx(10.0)
+    assert result.confidence > 0.8
+
+
 def test_locate_candidate_window_raises_on_empty_transcript() -> None:
     """An empty transcript should raise EmptyTranscriptError rather than fail silently."""
     empty_transcript = Transcript(segments=[], language="en")
