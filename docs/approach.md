@@ -53,4 +53,64 @@
 
 ![Initial Architecture](architecture%20diagram/version1.svg)
 
---- 
+---
+
+## Modules
+
+- **M0 — Environment & Repository Skeleton**
+  - Public GitHub repository: `Quest1`
+  - Set up folder structure
+  - Add `requirements.txt`
+  - Create `argparse` CLI skeleton
+  - Add initial `README.md`
+  - Start `prompts.txt`
+
+- **M1 — Acquisition**
+  - Download video using `yt-dlp`
+  - Add clean error handling
+  - Test against the actual `ok.ru` URL first
+  - Complete and validate this module before building further stages
+![M1](architecture%20diagram/M1.svg)
+
+- **M2 — Audio Locate**
+  - Extract audio using `ffmpeg`
+  - Transcribe locally using `faster-whisper`
+  - Generate timestamped transcript segments
+  - Match target dialogue using `rapidfuzz`
+  - Produce candidate time window + confidence
+![M2](architecture%20diagram/M2.svg)
+
+- **M3 — Visual Verify**
+  - Sample frames within the candidate window
+  - Crop to the likely subtitle/caption region
+  - Send selected frames to Gemini for OCR
+  - Fuzzy-match OCR text against target dialogue
+  - Select the first frame crossing the confidence threshold
+  - Save the matched frame
+![M3](architecture%20diagram/M3.svg)
+
+- **M4 — Fallback Path**
+  - Trigger when M2 produces low-confidence/no match
+  - Perform a coarse full-video OCR scan
+  - Reuse M3's OCR and matching logic
+  - Locate an approximate region for further verification
+
+- **M5 — Output & Ambiguity Handling**
+  - Format output according to the assignment specification
+  - Include timestamp, frame number, extracted text, confidence, and image
+  - Report ambiguous/low-confidence results
+  - Handle multiple close candidate matches
+
+- **M6 — Documentation**
+  - Finalize `APPROACH.md`
+  - Finalize `prompts.txt`
+  - Update `README.md`
+  - Document design decisions, assumptions, thresholds, and limitations
+  - Documentation is maintained in parallel with implementation, not only at the end
+
+- **M7 — Interview Preparation & Validation**
+  - Review the complete implementation
+  - Rehearse the four key areas of the solution
+  - Test with a second video/dialogue pair
+  - Verify that the pipeline is not hardcoded to the sample input
+  - Prepare to explain design decisions, trade-offs, and failure handling

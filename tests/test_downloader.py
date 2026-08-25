@@ -1,0 +1,81 @@
+"""Unit and integration tests for the video downloader module."""
+
+from pathlib import Path
+
+import pytest
+
+from src.acquisition.downloader import DownloadResult, download_video
+from src.acquisition.exceptions import DownloadError
+
+
+@pytest.mark.integration
+def test_download_video_real_ok_ru_success(tmp_path: Path) -> None:
+    """Integration test verifying video download from ok.ru.
+
+    Hits the network to download a real video, confirming file creation
+    and valid metadata extraction.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If output validation fails.
+    """
+    test_url: str = "https://ok.ru/video/248244667877"
+    result: DownloadResult = download_video(url=test_url, output_dir=tmp_path)
+
+    assert isinstance(result, DownloadResult)
+    assert result.file_path.exists()
+    assert result.file_path.stat().st_size > 0
+    assert result.duration_seconds > 0
+    assert len(result.title) > 0
+
+
+def test_download_video_invalid_url_raises_download_error(tmp_path: Path) -> None:
+    """Test that an invalid or unresolvable URL raises a DownloadError.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If DownloadError is not raised.
+    """
+    invalid_url: str = "https://not-a-real-site.invalid/video/123"
+
+    with pytest.raises(DownloadError):
+        download_video(url=invalid_url, output_dir=tmp_path)
+
+
+@pytest.mark.integration
+def test_download_video_idempotent_caching(tmp_path: Path) -> None:
+    """Test that downloading an already acquired video returns cached result.
+
+    Marked as integration: the first call in a fresh tmp_path directory has
+    nothing to find locally, so it always requires a real network download
+    before the second call can exercise the cache-hit path.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If cached result verification fails.
+    """
+    test_url: str = "https://ok.ru/video/248244667877"
+    first_result: DownloadResult = download_video(url=test_url, output_dir=tmp_path)
+    initial_mtime: float = first_result.file_path.stat().st_mtime
+
+    second_result: DownloadResult = download_video(url=test_url, output_dir=tmp_path)
+    second_mtime: float = second_result.file_path.stat().st_mtime
+
+    assert first_result.file_path == second_result.file_path
+    assert initial_mtime == second_mtime
+    assert second_result.duration_seconds == first_result.duration_seconds

@@ -1,6 +1,8 @@
-openai-whisper
 google-genai
-rapidfuzz
 opencv-python
+openai-whisper
 pillow
 python-dotenv
+rapidfuzz
+streamlit
+yt-dlp

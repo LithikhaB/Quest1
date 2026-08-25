@@ -9,3 +9,191 @@ I have 2 approaches in my mind, evaluate both:
     the dialogue is strictly from Audio, no visual elements. no video processing is required.
 
 2 things to note: Efficient Search, Accurate frame to return.
+
+2. Refine the rough architecture I gave you, is it implementable, explain the shortcomings, or any other efficient way. also do we have free models to use for?
+
+3. ----------M1-------------
+
+I have implemented M1: video acquisition using yt-dlp.
+
+I want you to help me generate the unit tests and integration tests for this module.
+
+1st, inspect the existing M1 implementation, including the
+acquisition module, configuration, exceptions, and any existing test
+structure.
+
+Do not invent functions, classes, return types, or exceptions that do
+not exist in the codebase. Base the tests on the actual implementation.
+
+The tests should cover:
+
+1. Successful video acquisition from a valid URL.
+2. Reusing a locally cached video when it already exists.
+3. Metadata retrieval without downloading when appropriate.
+4. Successful extraction of video path, duration, and title.
+5. Invalid URL / unavailable video handling.
+6. yt-dlp download failures.
+7. Metadata extraction failures.
+8. Unexpected subprocess or filesystem failures if applicable.
+9. Correct classification of acquisition errors into the project's
+   existing typed exceptions.
+
+For unit tests:
+- Mock yt-dlp and network-dependent operations.
+- Do not make real network calls.
+- Test the behavior of individual functions.
+
+For integration testing:
+- Add a test that exercises the acquisition flow using the actual
+  project interfaces.
+- Keep the real-network test clearly separated/marked so it can be
+  skipped during normal test runs.
+- If an actual integration test is not practical without network
+  access, explain why rather than creating a fake integration test.
+
+Use pytest.
+
+Return:
+1. The test files to create.
+2. The tests to add.
+3. Any fixtures required.
+4. The pytest commands to run them.
+5. A short explanation of what each test is proving.
+
+Do not modify or write any files, just explain the issues/bugs in case of any.
+
+4. ---------- M2 -----------------
+M2 performs:
+
+    Video
+      ↓
+    ffmpeg audio extraction
+      ↓
+    faster-whisper transcription
+      ↓
+    Timestamped transcript segments
+      ↓
+    RapidFuzz target dialogue matching
+      ↓
+    Candidate time window + confidence
+
+Inspect the existing M2 implementation before generating tests.
+
+Do not invent APIs, assumptions, return values, or exceptions.
+Use the actual functions, parameters, data structures, configuration,
+and error handling present in the repository.
+
+Generate pytest unit and integration tests covering:
+
+1. Successful audio extraction.
+2. Missing input video.
+3. ffmpeg not being available.
+4. ffmpeg extraction failure.
+5. Successful faster-whisper transcription.
+6. Preservation of timestamped transcript segments.
+7. Whisper/transcription failure.
+8. Exact target dialogue matching.
+9. Fuzzy matching when the transcript contains small ASR errors.
+10. Target dialogue not being found.
+11. Low-confidence matches.
+12. Correct candidate window start and end timestamps.
+13. Correct confidence calculation and propagation.
+14. Edge cases near the beginning or end of the transcript.
+
+Unit tests:
+- Mock ffmpeg subprocess calls.
+- Mock faster-whisper inference.
+- Do not download models.
+- Do not process real video/audio.
+- Keep fuzzy matching deterministic.
+
+Integration tests:
+- Exercise the M2 pipeline through its public interface.
+- Use small local fixtures where practical.
+- Do not require an external API.
+- Do not depend on the sample production video.
+
+Pay particular attention to the boundary between Whisper timestamps
+and RapidFuzz matching.
+
+The test should verify not only that text similarity is calculated
+correctly, but also that a successful match produces the correct
+temporal search window.
+
+Return:
+1. Test files to create.
+2. Fixtures required.
+3. Unit tests.
+4. Integration tests.
+5. pytest commands.
+6. Any assumptions or gaps in the current implementation.
+
+5. ----------M3-----------------
+M3 performs:
+
+    Candidate time window
+      ↓
+    Sample video frames
+      ↓
+    Crop likely subtitle/caption region
+      ↓
+    Send selected frame to Gemini for OCR
+      ↓
+    Fuzzy-match OCR text against target dialogue
+      ↓
+    Select first frame crossing the threshold
+      ↓
+    Save the matched frame
+
+First inspect the existing M3 implementation, including:
+
+- Frame extraction logic
+- Frame sampling logic
+- Subtitle/caption cropping
+- Gemini client wrapper
+- Gemini response handling
+- Text normalization
+- RapidFuzz matching
+- Confidence threshold configuration
+- Exceptions
+- Output structure
+- Existing test structure
+
+Do not invent APIs or change the architecture.
+
+Generate pytest unit and integration tests covering:
+
+1. Correct frame sampling within a candidate time window.
+2. Correct timestamp/frame relationship.
+3. Correct subtitle-region cropping.
+4. Successful Gemini OCR response handling.
+5. Gemini returning readable target text.
+6. OCR output containing minor recognition errors.
+7. Fuzzy matching between OCR output and target dialogue.
+8. A frame crossing the configured similarity threshold.
+9. A frame remaining below the threshold.
+10. Selecting the FIRST frame that crosses the threshold rather than
+    a later frame with a higher score.
+11. No frame crossing the threshold.
+12. Best-effort behavior when no confident match exists.
+13. Gemini/API failure handling.
+14. Empty or malformed Gemini responses.
+15. Correct saving of the selected frame.
+16. Correct propagation of timestamp, frame number, extracted text,
+    and confidence.
+
+Unit tests:
+- Mock Gemini API calls.
+- Never consume the real Gemini API key.
+- Mock OpenCV/video decoding where appropriate.
+- Use deterministic fake OCR responses.
+- Use small synthetic images or local fixtures where required.
+
+Integration tests:
+- Exercise the complete M3 orchestration.
+- Mock Gemini responses while using real local frame-processing logic
+  where practical.
+- Verify that the output contains the expected frame, timestamp,
+  extracted text, and confidence.
+- Do not make integration tests depend on Gemini availability.
+

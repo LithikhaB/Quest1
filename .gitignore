@@ -1,1 +1,15 @@
 .env
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+data/raw/*
+!data/raw/.gitkeep
+data/frames/*
+!data/frames/.gitkeep
+data/audio/*
+!data/audio/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
