@@ -5,6 +5,13 @@ import re
 
 from rapidfuzz import fuzz
 
+try:
+    import jellyfish
+
+    _HAS_JELLYFISH = True
+except ImportError:
+    _HAS_JELLYFISH = False
+
 from src.constants import (
     DEFAULT_MAX_WINDOW_SEGMENTS,
     DEFAULT_MIN_WINDOW_WORDS,
@@ -34,6 +41,42 @@ def _min_window_words(target_dialogue: str) -> int:
     """Compute the minimum words a candidate window must contain to be taken seriously."""
     target_words: int = _word_count(target_dialogue)
     return max(DEFAULT_MIN_WINDOW_WORDS, int(target_words * DEFAULT_MIN_WINDOW_WORD_RATIO))
+
+
+def _phonetic_score(candidate_text: str, target_text: str) -> float:
+    """Compute a phonetic similarity score using metaphone encoding.
+
+    Takes the ratio of metaphone codes across the word level, so words that sound
+    alike (e.g. "rebels"/"reveals", "their"/"there"/"they're") score highly even
+    when their character-edit distance is large.  Falls back to 0.0 when
+    ``jellyfish`` is not installed.  Returns a score in the range 0--100.
+    """
+    if not _HAS_JELLYFISH:
+        return 0.0
+
+    cand_phones: str = " ".join(jellyfish.metaphone(w) for w in candidate_text.split())
+    target_phones: str = " ".join(jellyfish.metaphone(w) for w in target_text.split())
+    if not cand_phones or not target_phones:
+        return 0.0
+    return fuzz.ratio(cand_phones, target_phones)  # 0--100
+
+
+def hybrid_score(candidate_text: str, target_text: str) -> float:
+    """Return the better of the text‑based and phonetic similarity scores.
+
+    * ``text_score`` — ``token_sort_ratio`` handles word reordering and suppresses
+      substring flukes (a lone "it" against a long target).  Returns 0--100.
+    * ``phonetic_score`` — ``metaphone``-based ratio catches ASR homophone confusion
+      (``"rebels"`` mis‑heard as ``"reveals"``).  Returns 0--100.
+    * Taking the ``max`` means we strictly widen what counts as a match — a real typo
+      still scores well on the text side, a real mishearing scores well on the phonetic
+      side, and we don't need to know in advance which kind of error we're dealing with.
+    """
+    text_score: float = fuzz.token_sort_ratio(
+        candidate_text.lower(), target_text.lower()
+    )  # 0--100
+    phonetic_score: float = _phonetic_score(candidate_text, target_text)  # 0--100
+    return max(text_score, phonetic_score)  # 0--100
 
 
 def locate_candidate_window(
@@ -83,7 +126,7 @@ def locate_candidate_window(
             if _word_count(window_text) < min_words:
                 continue
 
-            score: float = fuzz.partial_ratio(normalized_target, _normalize(window_text))
+            score: float = hybrid_score(normalized_target, _normalize(window_text))
 
             if score > best_score:
                 best_score = score

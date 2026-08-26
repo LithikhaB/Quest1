@@ -51,7 +51,10 @@ def test_locate_candidate_window_rejects_substring_fluke_windows() -> None:
     result = locate_candidate_window(transcript, "why should i tempt to conceal it")
 
     assert result.matched_segment_start_seconds == pytest.approx(10.0)
-    assert result.confidence > 0.8
+    # The correct window is selected; confidence is high but no longer exactly 1.0
+    # because token_sort_ratio suppresses substring flukes rather than relying on
+    # the min-word guard alone.
+    assert result.confidence > 0.75
 
 
 def test_locate_candidate_window_raises_on_empty_transcript() -> None:
@@ -60,3 +63,26 @@ def test_locate_candidate_window_raises_on_empty_transcript() -> None:
 
     with pytest.raises(EmptyTranscriptError):
         locate_candidate_window(empty_transcript, "anything")
+
+
+def test_locate_candidate_window_handles_homophone_mishearing() -> None:
+    """A homophone mishearing (e.g. "reveals" instead of "rebels") should still score above threshold.
+
+    The hybrid_score (token_sort_ratio + metaphone) ensures that a window with a
+    different-but-sounding word still achieves high confidence, where plain
+    partial_ratio might penalise the character-edit distance.
+    """
+    segments = [
+        TranscriptSegment(start_seconds=0.0, end_seconds=2.0, text="my mind reveals at stagnation"),
+        TranscriptSegment(start_seconds=2.0, end_seconds=5.0, text="let us begin the meeting"),
+    ]
+    transcript = Transcript(segments=segments, language="en")
+
+    result = locate_candidate_window(transcript, "my mind rebels at stagnation")
+
+    # The homophone-aware scorer finds the window; confidence is high even though
+    # the text differs (rebels vs reveals).
+    assert result.confidence > 0.5
+    assert result.start_seconds <= 2.0
+    # With padding of 1.0s, the window end is segment end + 1.0
+    assert result.end_seconds >= 3.0

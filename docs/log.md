@@ -58,7 +58,7 @@ Detailed summary of how this project was built, what changed, and why.
 
 ![M6 — Frontend](architecture%20diagrams/M6.svg)
 
-## Why OCR was removed (the honest engineering story)
+## Why OCR was removed
 
 The original plan (see `docs/approach.md`) was: audio narrows the haystack, OCR verifies the
 needle. Running it against the real target video exposed three things:
