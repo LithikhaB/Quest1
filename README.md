@@ -51,8 +51,7 @@ matcher absorbed it and still anchored the exact frame. Cold run on the 50-minut
 
 ## Demo
 
-> **Demo video coming soon.** This section will embed a short walkthrough of a live run
-> (cold start, cached rerun, and the typo-tolerance demo) once recorded.
+[click to watch the demo in google drive](https://drive.google.com/file/d/1__AHZSRbVi5TyWDnri5ITY4Zsckx2VKt/view?usp=sharing)
 
 ---
 
