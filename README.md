@@ -51,7 +51,7 @@ matcher absorbed it and still anchored the exact frame. Cold run on the 50-minut
 
 ## Demo
 
-[click to watch the demo in google drive](https://drive.google.com/file/d/1__AHZSRbVi5TyWDnri5ITY4Zsckx2VKt/view?usp=sharing)
+[click to watch the demo in google drive](https://drive.google.com/file/d/1JllvOhCYaeD8WCWHFeYQvuOsmAIZbEpp/view?usp=sharing)
 
 ---
 
@@ -119,7 +119,9 @@ confidence metrics, an ambiguity warning when applicable, the matched transcript
 saved frame inline.
 
 ---
-
+## Sample Output
+![`sample output`](docs/demo/sample%20output.png)
+---
 ## Project Structure
 
 ```
