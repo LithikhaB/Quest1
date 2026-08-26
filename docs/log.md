@@ -1,19 +1,13 @@
-# sample.md — Build Log & Engineering Summary
-
+﻿# Build Log
 Detailed summary of how this project was built, what changed, and why.
 
-## Final architecture (audio-driven, no OCR)
+## Initial architecture
 
-```
-Video URL
-  -> M1 Acquisition      src/acquisition/downloader.py   (yt-dlp, cache-first)
-  -> M2 Localization     src/transcription/ + src/localization/
-                          ffmpeg -> Whisper(word timestamps) -> rapidfuzz window
-  -> M3 Frame extraction src/frames/sampler.py            (seek to matched moment, save PNG)
-  -> M4 Ambiguity        src/localization/ambiguity.py    (confidence < threshold)
-  -> M5 Output           src/output/                      (DialogueResult + report)
-  -> M6 UI               app.py                           (Streamlit)
-```
+![Initial architecture diagram](architecture%20diagrams/inital.png)
+
+## Final architecture 
+
+![Final architecture](architecture%20diagrams/version1.svg)
 
 ## What was built, in order
 
@@ -23,6 +17,10 @@ Video URL
   `NetworkError` / `VideoUnavailableError` / `UnsupportedURLError`.
 - `concurrent_fragment_downloads=8` for fast HLS downloads (ok.ru serves fragmented HLS).
 - DNS patch deprioritizes a known-dead ok.ru edge IP (`95.163.61.73`).
+- Route switch: configured proxy first, direct connection as automatic fallback on
+  NetworkError — one bad proxy config can no longer break working downloads.
+
+![M1 — Acquisition](architecture%20diagrams/M1.svg)
 
 ### M2 — Audio localization (kept, upgraded)
 - `extract_audio` (ffmpeg -> 16kHz mono WAV, cached).
@@ -30,30 +28,40 @@ Video URL
 - `_chunk_words_into_segments` — regroups words so no transcript segment spans >2.5s.
   This was the single biggest precision win: Whisper merged ~10s of speech into one segment,
   making candidate windows ~13s wide; after chunking, windows are ~2s.
-- `locate_candidate_window` — rapidfuzz sliding window (1 segment + 1s padding),
-  returns `CandidateWindow(start, end, confidence, matched_text, matched_segment_start/end)`.
+- `locate_candidate_window` — rapidfuzz sliding window over chunks with a minimum-word guard
+  (rejects substring flukes like "it" matching a 7-word target at fake 100%).
 - Transcript cache keyed on audio SHA-256 + model + `_words` format marker.
 
-### M3 — Frame extraction (redefined: primary path, not verification)
+![M2 — Audio Locate](architecture%20diagrams/M2.svg)
+
+### M3 — Frame extraction
 - `_extract_representative_frame` — `sample_frames(video, t, t)` seeks to the matched segment
   start and reads that single frame.
 - `save_frame_image` — `cv2.imwrite` into `data/frames/match_frame_<n>_<t>s.png`.
 
+![M3 — Frame Extraction](architecture%20diagrams/M3.svg)
+
 ### M4 — Ambiguity
 - `is_ambiguous(window)` — `window.confidence < settings.similarity_threshold` (default 0.8).
+
+![M4 — Ambiguity](architecture%20diagrams/M4.svg)
 
 ### M5 — Output
 - `DialogueResult(timestamp_seconds, frame_index, matched_text, image_path, confidence, is_ambiguous)`.
 - `render_report` — spec format with `HH:MM:SS.mmm` timestamps; saved to `data/processed/result.txt`.
 
+![M5 — Output](architecture%20diagrams/M5.svg)
+
 ### M6 — Streamlit
 - `app.py` — URL + dialogue inputs, Run button, timestamp/frame/confidence metrics,
   ambiguity warning, matched transcript text, inline frame image.
 
+![M6 — Frontend](architecture%20diagrams/M6.svg)
+
 ## Why OCR was removed (the honest engineering story)
 
-The original plan (see `APPROACH.md`) was: audio narrows the haystack, OCR verifies the needle.
-Running it against the real target video exposed three things:
+The original plan (see `docs/approach.md`) was: audio narrows the haystack, OCR verifies the
+needle. Running it against the real target video exposed three things:
 
 1. **The video has no subtitles.** "My mind rebels at stagnation" is spoken only. OCR had nothing
    to read — every frame scored ~0.38 against a channel watermark ("CHISPA MOTIVATION"), never
@@ -76,30 +84,15 @@ extraction than OCR-on-nothing.
 
 ## Testing
 
-- 21 unit tests (`pytest -m "not integration"`), covering: downloader error classification and
-  idempotent caching, frame sampling/saving, transcript word-chunking, window matching,
-  ambiguity flagging, result building, report formatting, and three end-to-end pipeline tests
-  with stubbed I/O.
+- 20 unit tests (`pytest -m "not integration"`), covering: downloader error classification,
+  proxy options, idempotent caching, frame sampling/saving, transcript word-chunking, window
+  matching (incl. the substring-fluke regression test), ambiguity flagging, result building,
+  report formatting, and three end-to-end pipeline tests with stubbed I/O.
 - 4 integration tests (real download/audio/transcription) are marked `@pytest.mark.integration`
   and deselected by default.
 
 ## Known issues
 
-1. **ok.ru reachability**: the site is blocked/degraded on some networks (TLS handshake killed —
-   `SSL: UNEXPECTED_EOF_WHILE_READING` / `ConnectionResetError 10054`). This is ISP-level SNI
-   filtering, not a code bug — no application code can bypass it. Workarounds: phone hotspot,
-   Cloudflare WARP (free), ProtonVPN free, or a local proxy via the `YTDLP_PROXY` setting in
-   `.env` (the downloader forwards it to yt-dlp). The cache-first downloader means this only
-   matters once per video.
-2. Whisper `tiny` can mishear dialogue; set `WHISPER_MODEL_SIZE=base` in `.env` for better
-   accuracy at ~2x runtime.
-
-## Submission checklist (per flowchart)
-
-- [x] Public GitHub repo with all source code
-- [x] `README.md` — how to run
-- [x] `APPROACH.md` — original design (kept)
-- [x] `docs/approach_audio_only.md` — final design + rationale
-- [x] `prompts.txt` — AI prompts (kept, untouched)
-- [x] `sample.md` — this build log
-- [x] `requirements.txt` — dependencies
+1. **ok.ru reachability**: the site is blocked/degraded on some networks.
+   
+2. Whisper `tiny` can mishear dialogue; set `WHISPER_MODEL_SIZE=base` in `.env` for better accuracy at 2x runtime.

@@ -14,5 +14,4 @@ data/audio/*
 data/processed/*
 !data/processed/.gitkeep
 
-sample.md
 interview_prep.md

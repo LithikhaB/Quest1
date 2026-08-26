@@ -1,0 +1,155 @@
+ERRORS FACED DURING DEVELOPMENT — AND HOW EACH WAS SOLVED
+==========================================================
+A chronological log of real failures from building this pipeline, with root
+causes and fixes. 
+
+------------------------------------------------------------------------
+1. Gemini API 429 RESOURCE_EXHAUSTED (requests per minute)
+------------------------------------------------------------------------
+Symptom : Every OCR request failed with 429; retry after 2s/4s failed too.
+Root    : Free tier allows 5 requests/minute for the vision model. The
+          pipeline OCR'd frames 0.3s apart, so the quota died within seconds.
+          Worse, the retry logic slept 2-4s while Google's own response said
+          "Please retry in ~36s" — all retries burned inside one exhausted
+          window.
+Fix     : Client-side pacing (min 15s between requests), and parsing the
+          server-provided retryDelay out of the 429 body to sleep exactly as
+          long as Google asked.
+
+------------------------------------------------------------------------
+2. Gemini API 429 (requests per DAY)
+------------------------------------------------------------------------
+Symptom : 429 again, but this time the quota ID said
+          GenerateRequestsPerDayPerProjectPerModel-FreeTier, limit: 20.
+Root    : The daily cap (20 requests/day) was exhausted. No retry delay can
+          fix this until midnight Pacific.
+Fix     : Detect "PerDay" in the 429 body -> raise immediately (no pointless
+          retries), set a process-wide flag to skip all remaining requests,
+          and degrade gracefully: frames without OCR count as "no text", and
+          if OCR coverage drops below 50% the pipeline falls back to the
+          audio-derived timestamp instead of crashing.
+
+------------------------------------------------------------------------
+3. Gemini returned markdown instead of plain text
+------------------------------------------------------------------------
+Symptom : extracted_text was '```json\n{}\n```' — the model wrapped its
+          "no text found" answer in markdown JSON fences, which then got
+          fuzzy-scored (0.25) and cached to disk.
+Root    : Vision models sometimes ignore "respond with plain text only".
+Fix     : Sanitizer applied to every response AND every cache read (so
+          poisoned cache entries self-healed): strip code fences, map
+          empty JSON payloads ({}, [], null) to empty string.
+
+------------------------------------------------------------------------
+4. Watermark false positives
+------------------------------------------------------------------------
+Symptom : Every frame scored 0.38 — the video had a persistent "CHISPA
+          MOTIVATION" watermark in the caption band, so "captions detected"
+          was always true and the best match was always watermark text.
+Root    : Repeated overlay text is indistinguishable from captions if you
+          look at one frame at a time.
+Fix     : Cross-frame watermark detection: any text appearing identically in
+          >=50% of frames (min 3) is treated as a watermark and excluded
+          from scoring and caption detection.
+
+------------------------------------------------------------------------
+5. google.genai has no attribute 'AutomaticFunctionCalling'
+------------------------------------------------------------------------
+Symptom : AttributeError on every OCR call after adding a config to silence
+          a deprecation warning.
+Root    : AI-generated code used the class name from a different library
+          version; the installed google-genai 2.19.0 names it
+          AutomaticFunctionCallingConfig.
+Fix     : Inspected the installed package (dir(types)) and used the correct
+          class. Lesson: verify AI-suggested API names against the actual
+          installed version before committing them.
+
+------------------------------------------------------------------------
+6. ok.ru unreachable: SSL EOF / ConnectionResetError 10054
+------------------------------------------------------------------------
+Symptom : Downloads failed with [SSL: UNEXPECTED_EOF_WHILE_READING] or
+          ConnectionResetError(10054) — connections killed mid-TLS-handshake.
+          TCP connect succeeded, then the connection died.
+Root    : ISP-level SNI filtering of ok.ru. One specific edge IP
+          (95.163.61.73) also intermittently reset connections even where
+          ok.ru was reachable.
+Fix     (code): DNS patch — socket.getaddrinfo is monkeypatched to reorder
+          results so the known-dead IP is tried LAST, not first
+          (src/acquisition/downloader.py::_apply_dns_patch).
+Fix     (environment): the block itself cannot be bypassed from application
+          code. Workarounds: phone hotspot, or a free VPN. For proxy-style
+          tools, YTDLP_PROXY in .env is forwarded to yt-dlp.
+
+------------------------------------------------------------------------
+7. Dead proxy port broke WORKING downloads
+------------------------------------------------------------------------
+Symptom : After setting YTDLP_PROXY=socks5://127.0.0.1:1080 with no proxy
+          app actually running, even YouTube downloads failed with
+          ConnectionRefusedError 10061.
+Root    : The proxy setting was applied unconditionally — one bad config
+          value took down routes that previously worked.
+Fix     : Route-switch design: the downloader tries the configured proxy
+          FIRST, and on NetworkError automatically retries over a direct
+          connection (and vice versa). One misconfigured value can no longer
+          break working routes. Only NetworkError triggers the switch;
+          "video unavailable" still fails fast.
+
+------------------------------------------------------------------------
+8. Fragment-by-fragment downloads were slow
+------------------------------------------------------------------------
+Symptom : ok.ru downloads crawled one HLS fragment at a time (hundreds of
+          sequential requests, visible via the .ytdl resume file).
+Root    : yt-dlp defaults to sequential fragment downloads; ok.ru serves
+          HLS/DASH.
+Fix     : concurrent_fragment_downloads=8 in the yt-dlp options (~8x faster).
+          Plus cache-first design: the download cost is paid once per video,
+          ever.
+
+------------------------------------------------------------------------
+9. "pytest not recognized"
+------------------------------------------------------------------------
+Symptom : Running bare `pytest` on a fresh shell failed.
+Root    : pytest was installed inside the venv, which was not on PATH in
+          that shell.
+Fix     : Always `python -m pytest` (uses the interpreter's venv), and
+          setup.bat / setup.sh now create the venv, install deps, and run
+          the tests in one command so evaluators never hit this.
+
+------------------------------------------------------------------------
+10. Transcript segment "it" scored a fake 100% match
+------------------------------------------------------------------------
+Symptom : Query "why should i tempt to conceal it" (7 words) matched a
+          transcript chunk "it" with confidence 1.00 and anchored at a wrong
+          timestamp half an hour off.
+Root    : rapidfuzz.partial_ratio finds the best-matching SUBSTRING of the
+          longer string. Any tiny chunk contained in the target ("it" is a
+          substring of "...conceal it") scores 100.
+Fix     : Minimum-word guard — a candidate window must contain at least
+          max(3, 50% of the target's word count) words, or it is rejected
+          before scoring. Regression test added. After the fix the same
+          query correctly matched "Why should I attempt to conceal it?" at
+          13:00.7 with confidence 0.94 (also absorbing the "tempt" typo).
+
+------------------------------------------------------------------------
+11. Whisper merged ~10 seconds of speech into one segment
+------------------------------------------------------------------------
+Symptom : Match windows were ~13s wide (0-13s) when the spoken line was at
+          ~11s; frame anchoring was coarse.
+Root    : Whisper's segment-level timestamps group long phrases; matching at
+          segment granularity inherits that coarseness.
+Fix     : Transcribe with word_timestamps=True and regroup words into
+          segments of <=2.5s span (_chunk_words_into_segments). Match windows
+          shrank from ~13s to ~2s; 895 precise chunks for the 50-min video.
+
+------------------------------------------------------------------------
+12. Local OCR (EasyOCR) read nothing
+------------------------------------------------------------------------
+Symptom : After switching from Gemini to local EasyOCR, all frames OCR'd to
+          empty text even where Gemini had read the watermark.
+Root    : Cropped caption band + stylized watermark font + CPU model —
+          and, more fundamentally, the target video had NO subtitles at all.
+Fix     : Not a bug to fix but the final design signal: OCR could only add
+          failure modes (quotas, watermarks, cost) and no information for
+          spoken-only dialogue. The entire OCR stage was removed and the
+          pipeline became audio-driven. The verified transcript segment is
+          the "extracted text" deliverable.
