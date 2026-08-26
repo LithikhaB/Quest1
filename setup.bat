@@ -8,6 +8,8 @@ python -m venv .venv
 if errorlevel 1 (echo FAILED: could not create venv & exit /b 1)
 
 echo [2/3] Installing dependencies...
+.venv\Scripts\python.exe -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+if errorlevel 1 (echo FAILED: torch CPU install & exit /b 1)
 call .venv\Scripts\python.exe -m pip install --upgrade pip
 call .venv\Scripts\python.exe -m pip install -r requirements.txt
 if errorlevel 1 (echo FAILED: dependency installation & exit /b 1)

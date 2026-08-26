@@ -132,7 +132,6 @@ Quest1/
 │   ├── approach.md
 │   ├── ERRORS_FACED.txt
 │   ├── log.md
-│   ├── interview_prep.md
 │   ├── prompt.txt
 │   └── architecture diagrams/    # SVG pipeline diagrams (initial + per-module)
 ├── src/
